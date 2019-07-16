@@ -78,7 +78,7 @@ func main() {
 
 		defer watcher.Close()
 
-		go handleFileChange(watcher)
+		go handleWatcherEvents(watcher)
 
 		logrus.WithField("dir", watchDir).Info("Watching directory for changes")
 		err = watcher.Add(watchDir)
@@ -118,39 +118,54 @@ func getAndResetTimer(name string) *time.Timer {
 	return newTimer
 }
 
-func handleFileChange(watcher *fsnotify.Watcher) {
+func isDir(name string) bool {
+	if stat, err := os.Stat(name); err == nil && stat.IsDir() {
+		return true
+	}
+	return false
+}
+
+func handleDirChange(event fsnotify.Event, watcher *fsnotify.Watcher) error {
+
+	if event.Op&fsnotify.Create == fsnotify.Create {
+		return watcher.Add(event.Name)
+	} else if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+		return watcher.Remove(event.Name)
+	}
+
+	return nil
+}
+
+func handleFileChange(event fsnotify.Event) {
+
+	if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+		t := getAndResetTimer(event.Name)
+		if t != nil {
+			go handleFileInactive(t, event.Name)
+		}
+	} else if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+		if file, ok := ctx.FileMap[event.Name]; ok {
+			file.WaitTimer.Stop()
+			delete(ctx.FileMap, event.Name)
+		}
+	}
+}
+
+func handleWatcherEvents(watcher *fsnotify.Watcher) {
 	for {
 		select {
 		case event, ok := <-watcher.Events:
-
 			if !ok {
 				return
 			}
 
-			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
-				if stat, err := os.Stat(event.Name); err == nil && stat.IsDir() {
-					logrus.WithField("name", event.Name).Info("Created dir")
-					err = watcher.Add(event.Name)
-					if err != nil {
-						logrus.Fatal(err)
-					}
-				} else {
-					t := getAndResetTimer(event.Name)
-					if t != nil {
-						go handleFileInactive(t, event.Name)
-					}
+			if isDir(event.Name) {
+				err := handleDirChange(event, watcher)
+				if err != nil {
+					logrus.Fatal(err)
 				}
-			} else if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
-				if stat, err := os.Stat(event.Name); err == nil && stat.IsDir() {
-					logrus.WithField("name", event.Name).Info("Removed dir")
-					err = watcher.Remove(event.Name)
-					if err != nil {
-						logrus.Fatal(err)
-					}
-				} else if file, ok := ctx.FileMap[event.Name]; ok {
-					file.WaitTimer.Stop()
-					delete(ctx.FileMap, event.Name)
-				}
+			} else {
+				handleFileChange(event)
 			}
 
 			if event.Op&fsnotify.Chmod != fsnotify.Chmod {
@@ -164,6 +179,7 @@ func handleFileChange(watcher *fsnotify.Watcher) {
 			if !ok {
 				return
 			}
+
 			logrus.WithError(err).Error("error with Watcher")
 		}
 	}

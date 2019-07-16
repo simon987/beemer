@@ -84,13 +84,16 @@ func copyFile(src string, dst string) error {
 func parseCommand(command string) func(string, string) (string, []string) {
 	args, _ := argv.Argv([]rune(command), argv.ParseEnv(os.Environ()), argv.Run)
 
+	logrus.WithField("cmd", args[0]).Info("Parsed beem command")
+
 	return func(name string, dir string) (string, []string) {
 		newTokens := make([]string, len(args[0]))
 		copy(newTokens, args[0])
 
 		for i := range newTokens {
-			newTokens[i] = strings.Replace(newTokens[i], "%file", name,-1)
-			newTokens[i] = strings.Replace(newTokens[i], "%dir", dir,-1)
+			newTokens[i] = strings.Replace(newTokens[i], "%file", name, -1)
+			newTokens[i] = strings.Replace(newTokens[i], "%dir", dir, -1)
+			newTokens[i] = strings.Replace(newTokens[i], "%name", filepath.Base(name), -1)
 		}
 		return args[0][0], newTokens[1:]
 	}

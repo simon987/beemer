@@ -2,7 +2,9 @@ package main
 
 import (
 	"github.com/fsnotify/fsnotify"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,8 +23,7 @@ type File struct {
 	BeemLock  bool
 }
 
-var CmdString = "rclone move %file remote:/beem/%dir"
-var InactiveDelay = time.Second * 5
+var InactiveDelay time.Duration
 
 var ctx = Ctx{
 	FileMap: make(map[string]*File, 0),
@@ -31,26 +32,71 @@ var ctx = Ctx{
 func main() {
 	logrus.SetLevel(logrus.TraceLevel)
 
-	initTempDir()
-	ctx.BeemCommand = parseCommand(CmdString)
+	app := cli.NewApp()
+	app.Name = "beemer"
+	app.Usage = "Execute a command on a file after a delay of inactivity"
+	app.Email = "me@simon987.net"
+	app.Author = "simon987"
+	app.Version = "1.0"
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		logrus.Fatal(err)
+	var cmdString string
+	var watchDir string
+
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name: "command, c",
+			Usage: "Will be executed on file write. You can use %file, %name and %dir. " +
+				"Example: \"rclone move %file remote:/beem/%dir\"",
+			Destination: &cmdString,
+		},
+		cli.DurationFlag{
+			Name:        "wait, w",
+			Usage:       "Files will be beemed after `DELAY` of inactivity",
+			Destination: &InactiveDelay,
+			Value:       time.Second * 10,
+		},
+		cli.StringFlag{
+			Name:        "directory, d",
+			Usage:       "`DIRECTORY` to watch. If non-empty, its current files & subdirectories will be ignored",
+			Destination: &watchDir,
+		},
 	}
 
-	defer watcher.Close()
+	app.Action = func(c *cli.Context) error {
 
-	go handleFileChange(watcher)
+		if !c.IsSet("directory") {
+			return errors.New("Directory must be specified")
+		}
 
-	err = watcher.Add("./test")
-	if err != nil {
-		logrus.Fatal(err)
+		initTempDir()
+		ctx.BeemCommand = parseCommand(cmdString)
+
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			logrus.Fatal(err)
+		}
+
+		defer watcher.Close()
+
+		go handleFileChange(watcher)
+
+		logrus.WithField("dir", watchDir).Info("Watching directory for changes")
+		err = watcher.Add(watchDir)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+
+		//TODO gracefully handle SIGINT
+		done := make(chan bool)
+		<-done
+
+		return nil
 	}
 
-	//TODO gracefully handle SIGINT
-	done := make(chan bool)
-	<-done
+	err := app.Run(os.Args)
+	if err != nil {
+		logrus.Fatal(app.OnUsageError)
+	}
 }
 
 func getAndResetTimer(name string) *time.Timer {

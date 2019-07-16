@@ -16,6 +16,7 @@ type Ctx struct {
 	FileMap            map[string]*File
 	TempDir            string
 	BeemCommand        func(string, string) (string, []string)
+	BeemChan           chan string
 }
 
 type File struct {
@@ -41,8 +42,15 @@ func main() {
 
 	var cmdString string
 	var watchDir string
+	var transfers int
 
 	app.Flags = []cli.Flag{
+		cli.IntFlag{
+			Name:        "transfers, t",
+			Usage:       "Number of simultaneous transfers",
+			Destination: &transfers,
+			Value:       10,
+		},
 		cli.StringFlag{
 			Name: "command, c",
 			Usage: "Will be executed on file write. You can use %file, %name and %dir. " +
@@ -57,7 +65,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "directory, d",
-			Usage:       "`DIRECTORY` to watch. If non-empty, its current files & subdirectories will be ignored",
+			Usage:       "`DIRECTORY` to watch.",
 			Destination: &watchDir,
 		},
 	}
@@ -67,6 +75,7 @@ func main() {
 		if !c.IsSet("directory") {
 			return errors.New("Directory must be specified")
 		}
+		ctx.BeemChan = make(chan string, transfers)
 
 		initTempDir()
 		ctx.BeemCommand = parseCommand(cmdString)
@@ -80,13 +89,13 @@ func main() {
 
 		go handleWatcherEvents(watcher)
 
-		logrus.WithField("dir", watchDir).Info("Watching directory for changes")
-		err = watcher.Add(watchDir)
-		if err != nil {
-			logrus.Fatal(err)
-		}
+		initWatchDir(watchDir, watcher)
 
 		//TODO gracefully handle SIGINT
+		for i := 0; i < transfers; i++ {
+			go beemer()
+		}
+
 		done := make(chan bool)
 		<-done
 
@@ -96,6 +105,35 @@ func main() {
 	err := app.Run(os.Args)
 	if err != nil {
 		logrus.Fatal(app.OnUsageError)
+	}
+}
+
+func initWatchDir(watchDir string, watcher *fsnotify.Watcher) {
+
+	logrus.WithField("dir", watchDir).Info("Watching directory for changes")
+
+	err := watcher.Add(watchDir)
+	_ = filepath.Walk(watchDir, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			err := handleDirChange(fsnotify.Event{
+				Name: path,
+				Op:   fsnotify.Create,
+			}, watcher)
+
+			if err != nil {
+				return err
+			}
+		} else {
+			handleFileChange(fsnotify.Event{
+				Name: path,
+				Op:   fsnotify.Create,
+			})
+		}
+		return nil
+	})
+
+	if err != nil {
+		logrus.Fatal(err)
 	}
 }
 
@@ -185,6 +223,15 @@ func handleWatcherEvents(watcher *fsnotify.Watcher) {
 	}
 }
 
+func beemer() {
+	for {
+		select {
+		case name := <-ctx.BeemChan:
+			beemFile(name)
+		}
+	}
+}
+
 func handleFileInactive(t *time.Timer, name string) {
 	<-t.C
 
@@ -194,7 +241,7 @@ func handleFileInactive(t *time.Timer, name string) {
 		"name": name,
 	}).Infof("has been inactive for %s and will be beemed", InactiveDelay)
 
-	beemFile(name)
+	ctx.BeemChan <- name
 }
 
 func beemFile(filename string) {

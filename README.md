@@ -12,11 +12,13 @@ NAME:
    beemer - Execute a command on a file after a delay of inactivity
 
 GLOBAL OPTIONS:
-   --command value, -c value            Will be executed on file write. You can use %file and %dir. Example: "rclone move %file remote:/beem/%dir"
-   --wait DELAY, -w DELAY               Files will be beemed after DELAY of inactivity (default: 10s)
-   --directory DIRECTORY, -d DIRECTORY  DIRECTORY to watch. If non-empty, its current files & subdirectories will be ignored
-   --help, -h                           show help
-   --version, -v                        print the version
+  --transfers value, -t value          Number of simultaneous transfers (default: 10)
+  --command value, -c value            Will be executed on file write. You can use %file, %name and %dir. Example: "rclone move %file remote:/beem/%dir"
+  --wait DELAY, -w DELAY               Files will be beemed after DELAY of inactivity (default: 10s)
+  --directory DIRECTORY, -d DIRECTORY  DIRECTORY to watch.
+  --help, -h                           show help
+  --version, -v                        print the version
+
 ```
 
 ### Examples

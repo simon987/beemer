@@ -9,21 +9,21 @@ import (
 	"strings"
 )
 
-func initTempDir() {
-	tmpdir := filepath.Join(os.TempDir(), "beemer")
+func (b Beemer) initTempDir() {
+	tmpdir := filepath.Join(os.TempDir(), "work")
 	err := os.Mkdir(tmpdir, 0700)
 	if err != nil && !os.IsExist(err) {
 		logrus.Fatal(err)
 	}
 
-	ctx.TempDir = tmpdir
+	b.tempDir = tmpdir
 
 	logrus.WithField("dir", tmpdir).Infof("Initialized temp dir")
 }
 
-func moveToTempDir(name string) string {
+func moveToTempDir(name string, tempDir string) string {
 
-	dir := filepath.Join(ctx.TempDir, filepath.Dir(name))
+	dir := filepath.Join(tempDir, filepath.Dir(name))
 	newName := filepath.Join(dir, filepath.Base(name))
 	err := os.MkdirAll(dir, 0700)
 	if err != nil && !os.IsExist(err) {
@@ -96,5 +96,20 @@ func parseCommand(command string) func(string, string) (string, []string) {
 			newTokens[i] = strings.Replace(newTokens[i], "%name", filepath.Base(name), -1)
 		}
 		return args[0][0], newTokens[1:]
+	}
+}
+
+func isDir(name string) bool {
+	if stat, err := os.Stat(name); err == nil && stat.IsDir() {
+		return true
+	}
+	return false
+}
+
+func (b Beemer) dispose() {
+	b.watcher.Close()
+	err := os.RemoveAll(b.tempDir)
+	if err != nil {
+		logrus.Fatal(err)
 	}
 }

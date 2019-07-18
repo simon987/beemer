@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -16,6 +18,7 @@ type Beemer struct {
 	beemChan      chan string
 	watcher       *fsnotify.Watcher
 	inactiveDelay time.Duration
+	globalWg      *sync.WaitGroup
 }
 
 type File struct {
@@ -132,12 +135,11 @@ func (b Beemer) handleWatcherEvents() {
 }
 
 func (b Beemer) work() {
-	for {
-		select {
-		case name := <-b.beemChan:
-			b.beemFile(name)
-		}
+	b.globalWg.Add(1)
+	for name := range b.beemChan {
+		b.beemFile(name)
 	}
+	b.globalWg.Done()
 }
 
 func (b Beemer) handleFileInactive(t *time.Timer, name string) {
@@ -159,6 +161,12 @@ func (b Beemer) beemFile(filename string) {
 	name, args := b.beemCommand(newName, filepath.Dir(filename))
 
 	cmd := exec.Command(name, args...)
+
+	// Don't send SIGINT to child processes
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		logrus.WithField("name", filename).WithError(err).Error(string(out))

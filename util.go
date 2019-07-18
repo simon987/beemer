@@ -108,8 +108,19 @@ func isDir(name string) bool {
 
 func (b Beemer) dispose() {
 	b.watcher.Close()
+	close(b.beemChan)
+
+	logrus.WithField("chanLen", len(b.beemChan)).Info("Waiting for beem queue to drain...")
+	<-b.beemChan
+
+	logrus.Info("Waiting for current commands to finish...")
+	b.globalWg.Wait()
+
+	logrus.Info("Cleaning up temp dir...")
 	err := os.RemoveAll(b.tempDir)
 	if err != nil {
 		logrus.Fatal(err)
 	}
+
+	logrus.Info("Goodbye.")
 }

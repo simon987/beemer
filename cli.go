@@ -6,10 +6,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 )
 
 func globalInit() {
+	//TODO cmdline flag
 	logrus.SetLevel(logrus.TraceLevel)
 }
 
@@ -66,13 +70,12 @@ func main() {
 			beemChan:      make(chan string, transfers),
 			beemCommand:   parseCommand(cmdString),
 			inactiveDelay: inactiveDelay,
+			globalWg:      &sync.WaitGroup{},
 		}
 
 		beemer.initTempDir()
 
 		beemer.watcher, _ = fsnotify.NewWatcher()
-
-		defer beemer.dispose()
 
 		go beemer.handleWatcherEvents()
 
@@ -82,10 +85,13 @@ func main() {
 			go beemer.work()
 		}
 
-		//TODO gracefully handle SIGINT
-		done := make(chan bool)
-		<-done
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT)
 
+		defer beemer.dispose()
+
+		<-sigChan
+		logrus.Info("Received SIGINT")
 		return nil
 	}
 

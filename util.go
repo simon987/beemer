@@ -109,9 +109,10 @@ func isDir(name string) bool {
 func (b *Beemer) dispose() {
 	b.watcher.Close()
 
-	for _, v := range b.fileMap {
-		v.WaitTimer.Stop()
-	}
+	b.fileMap.Range(func(key, value interface{}) bool {
+		value.(*File).WaitTimer.Stop()
+		return true
+	})
 
 	close(b.beemChan)
 

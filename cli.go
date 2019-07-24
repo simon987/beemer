@@ -74,7 +74,7 @@ func main() {
 		}
 
 		beemer := Beemer{
-			fileMap:       make(map[string]*File, 0),
+			fileMap:       &sync.Map{},
 			beemChan:      make(chan string, transfers),
 			tarChan:       make(chan string, 100),
 			beemCommand:   parseCommand(cmdString),

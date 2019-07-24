@@ -12,7 +12,7 @@ import (
 )
 
 type Beemer struct {
-	fileMap       map[string]*File
+	fileMap       *sync.Map
 	tempDir       string
 	beemCommand   func(string, string) (string, []string)
 	beemChan      chan string
@@ -61,19 +61,19 @@ func (b *Beemer) initWatchDir(watchDir string) {
 
 func (b *Beemer) getAndResetTimer(name string) *time.Timer {
 
-	file, ok := b.fileMap[name]
+	file, ok := b.fileMap.Load(name)
 	if ok {
-		file.WaitTimer.Stop()
-		if file.BeemLock == true {
+		file.(*File).WaitTimer.Stop()
+		if file.(*File).BeemLock == true {
 			return nil
 		}
 	}
 
 	newTimer := time.NewTimer(b.inactiveDelay)
-	b.fileMap[name] = &File{
+	b.fileMap.Store(name, &File{
 		newTimer,
 		false,
-	}
+	})
 
 	return newTimer
 }
@@ -97,9 +97,9 @@ func (b *Beemer) handleFileChange(event fsnotify.Event) {
 			go b.handleFileInactive(t, event.Name)
 		}
 	} else if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
-		if file, ok := b.fileMap[event.Name]; ok {
-			file.WaitTimer.Stop()
-			delete(b.fileMap, event.Name)
+		if file, ok := b.fileMap.Load(event.Name); ok {
+			file.(*File).WaitTimer.Stop()
+			b.fileMap.Delete(event.Name)
 		}
 	}
 }
@@ -191,7 +191,8 @@ func (b *Beemer) beemTar() {
 func (b *Beemer) handleFileInactive(t *time.Timer, name string) {
 	<-t.C
 
-	b.fileMap[name].BeemLock = true
+	file, _ := b.fileMap.Load(name)
+	file.(*File).BeemLock = true
 
 	logrus.WithFields(logrus.Fields{
 		"name": name,

@@ -4,6 +4,8 @@
 [![CodeFactor](https://www.codefactor.io/repository/github/simon987/beemer/badge)](https://www.codefactor.io/repository/github/simon987/beemer)
 
 **beemer** executes a custom command on files written in the watched directory and deletes it.
+Optionally, queue files in a .tar file and execute the command when the number of files in the
+archive reaches `NUMBER` (see [usage](#usage)).
 
 ### Usage
 
@@ -16,12 +18,25 @@ GLOBAL OPTIONS:
   --command value, -c value            Will be executed on file write. You can use %file, %name and %dir. Example: "rclone move %file remote:/beem/%dir"
   --wait DELAY, -w DELAY               Files will be beemed after DELAY of inactivity (default: 10s)
   --directory DIRECTORY, -d DIRECTORY  DIRECTORY to watch.
+  --tar NUMBER                         Fill a .tar file with up to NUMBER file before executing the beem command.
+                                       Set to '1' to disable this feature (default: 1)
   --help, -h                           show help
   --version, -v                        print the version
 
 ```
 
 ### Examples
+
+Bundle up to 100 files in a tar file before moving to another directory
+
+\**Note that %dir is always `/tmp/beemer`* when `--tar` is specified
+
+When `--tar NUM` is specified, the beem command will be called at most 
+every `NUM` new files.
+It will also be called during cleanup when SIGINT (`Ctrl-C`) is received.
+```bash
+./beemer -w 1s -d ./test --tar 100 -c "mv %file /mnt/store/my_tars/"
+```
 
 Upload file to an rclone remote when it has been inactive for at least 30s, 
 keeps the directory structure

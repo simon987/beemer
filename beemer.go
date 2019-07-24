@@ -16,9 +16,13 @@ type Beemer struct {
 	tempDir       string
 	beemCommand   func(string, string) (string, []string)
 	beemChan      chan string
+	tarChan       chan string
 	watcher       *fsnotify.Watcher
 	inactiveDelay time.Duration
-	globalWg      *sync.WaitGroup
+	beemWg        *sync.WaitGroup
+	tarWg         *sync.WaitGroup
+	tar           *Tar
+	tarMaxCount   int
 }
 
 type File struct {
@@ -26,7 +30,7 @@ type File struct {
 	BeemLock  bool
 }
 
-func (b Beemer) initWatchDir(watchDir string) {
+func (b *Beemer) initWatchDir(watchDir string) {
 
 	logrus.WithField("dir", watchDir).Info("Watching directory for changes")
 
@@ -55,7 +59,7 @@ func (b Beemer) initWatchDir(watchDir string) {
 	}
 }
 
-func (b Beemer) getAndResetTimer(name string) *time.Timer {
+func (b *Beemer) getAndResetTimer(name string) *time.Timer {
 
 	file, ok := b.fileMap[name]
 	if ok {
@@ -74,7 +78,7 @@ func (b Beemer) getAndResetTimer(name string) *time.Timer {
 	return newTimer
 }
 
-func (b Beemer) handleDirChange(event fsnotify.Event) error {
+func (b *Beemer) handleDirChange(event fsnotify.Event) error {
 
 	if event.Op&fsnotify.Create == fsnotify.Create {
 		return b.watcher.Add(event.Name)
@@ -85,7 +89,7 @@ func (b Beemer) handleDirChange(event fsnotify.Event) error {
 	return nil
 }
 
-func (b Beemer) handleFileChange(event fsnotify.Event) {
+func (b *Beemer) handleFileChange(event fsnotify.Event) {
 
 	if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
 		t := b.getAndResetTimer(event.Name)
@@ -100,7 +104,7 @@ func (b Beemer) handleFileChange(event fsnotify.Event) {
 	}
 }
 
-func (b Beemer) handleWatcherEvents() {
+func (b *Beemer) handleWatcherEvents() {
 	for {
 		select {
 		case event, ok := <-b.watcher.Events:
@@ -134,15 +138,57 @@ func (b Beemer) handleWatcherEvents() {
 	}
 }
 
-func (b Beemer) work() {
-	b.globalWg.Add(1)
+func (b *Beemer) work() {
+	b.beemWg.Add(1)
 	for name := range b.beemChan {
 		b.beemFile(name)
 	}
-	b.globalWg.Done()
+	b.beemWg.Done()
 }
 
-func (b Beemer) handleFileInactive(t *time.Timer, name string) {
+func (b *Beemer) tarWork() {
+	b.tarWg.Add(1)
+	for filename := range b.tarChan {
+
+		err := b.tar.AddFile(filename)
+		if err != nil {
+			logrus.WithField("filename", filename).Error(err)
+		} else {
+			_ = os.Remove(filename)
+		}
+		logrus.WithFields(logrus.Fields{
+			"filename": filename,
+			"tar":      b.tar.Name,
+			"count":    b.tar.FileCount,
+		}).Info("Added file to tar")
+
+		if b.tar.FileCount >= b.tarMaxCount {
+			b.beemTar()
+		}
+	}
+
+	if b.tar.FileCount > 0 {
+		logrus.WithField("fileCount", b.tar.FileCount).Info("Beeming partial tar file")
+		b.beemTar()
+	}
+
+	b.tarWg.Done()
+}
+
+func (b *Beemer) beemTar() {
+
+	name := b.tar.Name
+	b.tar.Close()
+	var err error
+	b.tar, err = NewTar(getTarPath(b.tempDir))
+	if err != nil {
+		logrus.Error(err)
+	}
+
+	b.executeBeemCommand(name, name)
+}
+
+func (b *Beemer) handleFileInactive(t *time.Timer, name string) {
 	<-t.C
 
 	b.fileMap[name].BeemLock = true
@@ -154,11 +200,9 @@ func (b Beemer) handleFileInactive(t *time.Timer, name string) {
 	b.beemChan <- name
 }
 
-func (b Beemer) beemFile(filename string) {
+func (b *Beemer) executeBeemCommand(oldName string, newName string) {
 
-	newName := moveToTempDir(filename, b.tempDir)
-
-	name, args := b.beemCommand(newName, filepath.Dir(filename))
+	name, args := b.beemCommand(newName, filepath.Dir(oldName))
 
 	cmd := exec.Command(name, args...)
 
@@ -169,7 +213,7 @@ func (b Beemer) beemFile(filename string) {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		logrus.WithField("name", filename).WithError(err).Error(string(out))
+		logrus.WithField("name", oldName).WithError(err).Error(string(out))
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -181,6 +225,17 @@ func (b Beemer) beemFile(filename string) {
 
 	err = os.Remove(newName)
 	if err != nil && !os.IsNotExist(err) {
-		logrus.WithField("name", filename).Error(err)
+		logrus.WithField("name", oldName).Error(err)
+	}
+}
+
+func (b *Beemer) beemFile(filename string) {
+
+	newName := moveToTempDir(filename, b.tempDir)
+
+	if b.tar != nil {
+		b.tarChan <- newName
+	} else {
+		b.executeBeemCommand(filename, newName)
 	}
 }

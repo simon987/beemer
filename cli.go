@@ -31,6 +31,7 @@ func main() {
 	var cmdString string
 	var watchDir string
 	var transfers int
+	var tarMaxCount int
 	var inactiveDelay time.Duration
 
 	app.Flags = []cli.Flag{
@@ -57,6 +58,13 @@ func main() {
 			Usage:       "`DIRECTORY` to watch.",
 			Destination: &watchDir,
 		},
+		cli.IntFlag{
+			Name: "tar",
+			Usage: "Fill a .tar file with up to `NUMBER` file before executing the beem command." +
+				"Set to '1' to disable this feature",
+			Value:       1,
+			Destination: &tarMaxCount,
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -68,14 +76,26 @@ func main() {
 		beemer := Beemer{
 			fileMap:       make(map[string]*File, 0),
 			beemChan:      make(chan string, transfers),
+			tarChan:       make(chan string, 100),
 			beemCommand:   parseCommand(cmdString),
 			inactiveDelay: inactiveDelay,
-			globalWg:      &sync.WaitGroup{},
+			beemWg:        &sync.WaitGroup{},
+			tarWg:         &sync.WaitGroup{},
+			tarMaxCount:   tarMaxCount,
 		}
 
 		beemer.initTempDir()
 
 		beemer.watcher, _ = fsnotify.NewWatcher()
+
+		if tarMaxCount > 1 {
+			var err error
+
+			beemer.tar, err = NewTar(getTarPath(beemer.tempDir))
+			if err != nil {
+				logrus.Fatal(err)
+			}
+		}
 
 		go beemer.handleWatcherEvents()
 
@@ -84,6 +104,8 @@ func main() {
 		for i := 0; i < transfers; i++ {
 			go beemer.work()
 		}
+
+		go beemer.tarWork()
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT)

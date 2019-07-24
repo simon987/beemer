@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-func (b Beemer) initTempDir() {
-	tmpdir := filepath.Join(os.TempDir(), "work")
+func (b *Beemer) initTempDir() {
+	tmpdir := filepath.Join(os.TempDir(), "beemer")
 	err := os.Mkdir(tmpdir, 0700)
 	if err != nil && !os.IsExist(err) {
 		logrus.Fatal(err)
@@ -106,15 +106,27 @@ func isDir(name string) bool {
 	return false
 }
 
-func (b Beemer) dispose() {
+func (b *Beemer) dispose() {
 	b.watcher.Close()
+
+	for _, v := range b.fileMap {
+		v.WaitTimer.Stop()
+	}
+
 	close(b.beemChan)
 
 	logrus.WithField("chanLen", len(b.beemChan)).Info("Waiting for beem queue to drain...")
 	<-b.beemChan
 
 	logrus.Info("Waiting for current commands to finish...")
-	b.globalWg.Wait()
+	b.beemWg.Wait()
+
+	close(b.tarChan)
+	logrus.WithField("chanLen", len(b.tarChan)).Info("Waiting for tar queue to drain...")
+	<-b.tarChan
+
+	logrus.Info("Waiting for current tar process finish...")
+	b.tarWg.Wait()
 
 	logrus.Info("Cleaning up temp dir...")
 	err := os.RemoveAll(b.tempDir)

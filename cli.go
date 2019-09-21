@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli"
 	"os"
 	"os/signal"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 func globalInit() {
 	//TODO cmdline flag
-	logrus.SetLevel(logrus.TraceLevel)
+	//logrus.SetLevel(logrus.TraceLevel)
 }
 
 func main() {
@@ -32,6 +33,7 @@ func main() {
 	var watchDir string
 	var transfers int
 	var tarMaxCount int
+	var excludePattern string
 	var inactiveDelay time.Duration
 
 	app.Flags = []cli.Flag{
@@ -46,6 +48,11 @@ func main() {
 			Usage: "Will be executed on file write. You can use %file, %name and %dir. " +
 				"Example: \"rclone move %file remote:/beem/%dir\"",
 			Destination: &cmdString,
+		},
+		cli.StringFlag{
+			Name:        "exclude, e",
+			Usage:       "Exclude files that match this regex pattern",
+			Destination: &excludePattern,
 		},
 		cli.DurationFlag{
 			Name:        "wait, w",
@@ -84,6 +91,11 @@ func main() {
 			tarMaxCount:   tarMaxCount,
 		}
 
+		if excludePattern != "" {
+			beemer.excludePattern, _ = regexp.Compile(excludePattern)
+			logrus.Infof("Exclude pattern is /%s/", excludePattern)
+		}
+
 		beemer.initTempDir()
 
 		beemer.watcher, _ = fsnotify.NewWatcher()
@@ -105,7 +117,9 @@ func main() {
 			go beemer.work()
 		}
 
-		go beemer.tarWork()
+		if tarMaxCount > 1 {
+			go beemer.tarWork()
+		}
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT)

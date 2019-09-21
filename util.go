@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (b *Beemer) initTempDir() {
@@ -109,12 +110,18 @@ func isDir(name string) bool {
 func (b *Beemer) dispose() {
 	b.watcher.Close()
 
+	b.closing = true
+
 	b.fileMap.Range(func(key, value interface{}) bool {
 		value.(*File).WaitTimer.Stop()
 		return true
 	})
 
-	close(b.beemChan)
+	go func() {
+		time.Sleep(15 * time.Second)
+		close(b.beemChan)
+		logrus.WithField("chanLen", len(b.beemChan)).Info("Forcefully closed beem channel")
+	}()
 
 	logrus.WithField("chanLen", len(b.beemChan)).Info("Waiting for beem queue to drain...")
 	<-b.beemChan
@@ -122,12 +129,13 @@ func (b *Beemer) dispose() {
 	logrus.Info("Waiting for current commands to finish...")
 	b.beemWg.Wait()
 
-	close(b.tarChan)
-	logrus.WithField("chanLen", len(b.tarChan)).Info("Waiting for tar queue to drain...")
-	<-b.tarChan
-
-	logrus.Info("Waiting for current tar process finish...")
-	b.tarWg.Wait()
+	if b.tarMaxCount > 1 {
+		close(b.tarChan)
+		logrus.WithField("chanLen", len(b.tarChan)).Info("Waiting for tar queue to drain...")
+		<-b.tarChan
+		logrus.Info("Waiting for current tar process finish...")
+		b.tarWg.Wait()
+	}
 
 	logrus.Info("Cleaning up temp dir...")
 	err := os.RemoveAll(b.tempDir)

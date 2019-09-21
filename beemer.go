@@ -6,23 +6,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
 )
 
 type Beemer struct {
-	fileMap       *sync.Map
-	tempDir       string
-	beemCommand   func(string, string) (string, []string)
-	beemChan      chan string
-	tarChan       chan string
-	watcher       *fsnotify.Watcher
-	inactiveDelay time.Duration
-	beemWg        *sync.WaitGroup
-	tarWg         *sync.WaitGroup
-	tar           *Tar
-	tarMaxCount   int
+	fileMap        *sync.Map
+	tempDir        string
+	beemCommand    func(string, string) (string, []string)
+	beemChan       chan string
+	tarChan        chan string
+	watcher        *fsnotify.Watcher
+	inactiveDelay  time.Duration
+	beemWg         *sync.WaitGroup
+	tarWg          *sync.WaitGroup
+	tar            *Tar
+	tarMaxCount    int
+	closing        bool
+	excludePattern *regexp.Regexp
 }
 
 type File struct {
@@ -36,6 +39,11 @@ func (b *Beemer) initWatchDir(watchDir string) {
 
 	err := b.watcher.Add(watchDir)
 	_ = filepath.Walk(watchDir, func(path string, info os.FileInfo, err error) error {
+
+		if b.excludePattern != nil && b.excludePattern.MatchString(path) {
+			return nil
+		}
+
 		if info.IsDir() {
 			err := b.handleDirChange(fsnotify.Event{
 				Name: path,
@@ -110,6 +118,10 @@ func (b *Beemer) handleWatcherEvents() {
 		case event, ok := <-b.watcher.Events:
 			if !ok {
 				return
+			}
+
+			if b.excludePattern != nil && b.excludePattern.MatchString(event.Name) {
+				continue
 			}
 
 			if isDir(event.Name) {
@@ -197,6 +209,11 @@ func (b *Beemer) handleFileInactive(t *time.Timer, name string) {
 	logrus.WithFields(logrus.Fields{
 		"name": name,
 	}).Infof("has been inactive for %s and will be beemed", b.inactiveDelay)
+
+	if b.closing {
+		close(b.beemChan)
+		return
+	}
 
 	b.beemChan <- name
 }

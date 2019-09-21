@@ -20,6 +20,7 @@ GLOBAL OPTIONS:
   --directory DIRECTORY, -d DIRECTORY  DIRECTORY to watch.
   --tar NUMBER                         Fill a .tar file with up to NUMBER file before executing the beem command.
                                        Set to '1' to disable this feature (default: 1)
+  --exclude value, -e value            Exclude files that match the regex pattern
   --help, -h                           show help
   --version, -v                        print the version
 

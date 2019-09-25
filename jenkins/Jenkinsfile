@@ -5,6 +5,7 @@ remote.user = env.DEPLOY_USER
 remote.identityFile = '/var/lib/jenkins/.ssh/id_rsa'
 remote.knownHosts = '/var/lib/jenkins/.ssh/known_hosts'
 remote.allowAnyHosts = true
+remote.port = 2299
 logLevel = 'FINER'
 
 pipeline {

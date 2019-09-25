@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -89,6 +90,7 @@ func main() {
 			beemWg:        &sync.WaitGroup{},
 			tarWg:         &sync.WaitGroup{},
 			tarMaxCount:   tarMaxCount,
+			failDir:       strings.TrimRight(watchDir, "/") + ".fail",
 		}
 
 		if excludePattern != "" {

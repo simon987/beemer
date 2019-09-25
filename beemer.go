@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"github.com/fsnotify/fsnotify"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sync"
@@ -26,6 +29,7 @@ type Beemer struct {
 	tarMaxCount    int
 	closing        bool
 	excludePattern *regexp.Regexp
+	failDir        string
 }
 
 type File struct {
@@ -197,7 +201,13 @@ func (b *Beemer) beemTar() {
 		logrus.Error(err)
 	}
 
-	b.executeBeemCommand(name, name)
+	err = b.executeBeemCommand(name, name)
+	if err != nil {
+		logrus.WithError(err).Error("Error during beem command! Moved tar file to failDir")
+		_ = os.Mkdir(b.failDir, 0700)
+		err = moveFile(name, path.Join(b.failDir, path.Base(name)))
+		logrus.Info(err)
+	}
 }
 
 func (b *Beemer) handleFileInactive(t *time.Timer, name string) {
@@ -218,7 +228,7 @@ func (b *Beemer) handleFileInactive(t *time.Timer, name string) {
 	b.beemChan <- name
 }
 
-func (b *Beemer) executeBeemCommand(oldName string, newName string) {
+func (b *Beemer) executeBeemCommand(oldName string, newName string) error {
 
 	name, args := b.beemCommand(newName, filepath.Dir(oldName))
 
@@ -231,7 +241,11 @@ func (b *Beemer) executeBeemCommand(oldName string, newName string) {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		logrus.WithField("name", oldName).WithError(err).Error(string(out))
+		return err
+	}
+
+	if cmd.ProcessState.ExitCode() != 0 {
+		return errors.New(fmt.Sprintf("Exit code: %d", cmd.ProcessState.ExitCode()))
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -245,6 +259,7 @@ func (b *Beemer) executeBeemCommand(oldName string, newName string) {
 	if err != nil && !os.IsNotExist(err) {
 		logrus.WithField("name", oldName).Error(err)
 	}
+	return nil
 }
 
 func (b *Beemer) beemFile(filename string) {
@@ -254,6 +269,10 @@ func (b *Beemer) beemFile(filename string) {
 	if b.tar != nil {
 		b.tarChan <- newName
 	} else {
-		b.executeBeemCommand(filename, newName)
+		err := b.executeBeemCommand(filename, newName)
+		if err != nil {
+			logrus.WithError(err).Error("Error during beem command, reverting file")
+			_ = moveFile(newName, filename)
+		}
 	}
 }

@@ -7,7 +7,7 @@ import jetbrains.buildServer.configs.kotlin.v2019_2.triggers.vcs
 object Build : BuildType({
     name = "Build"
 
-    artifactRules = "beemer => |%build.number%_beemer"
+    artifactRules = "beemer"
     publishArtifacts = PublishMode.SUCCESSFUL
     vcs {
         root(HttpsGithubComSimon987beemerRefsHeadsMaster)

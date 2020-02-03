@@ -1,6 +1,7 @@
 # beemer
 ![GitHub](https://img.shields.io/github/license/simon987/beemer.svg)
 [![CodeFactor](https://www.codefactor.io/repository/github/simon987/beemer/badge)](https://www.codefactor.io/repository/github/simon987/beemer)
+[![Development snapshots](https://ci.simon987.net/app/rest/builds/buildType(Beemer_Build)/statusIcon)](https://files.simon987.net/artifacts/Beemer/Build/)
 
 **beemer** executes a custom command on files written in the watched directory and deletes it.
 Optionally, queue files in a .tar file and execute the command when the number of files in the

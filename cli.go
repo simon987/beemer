@@ -28,7 +28,7 @@ func main() {
 	app.Usage = "Execute a command on a file after a delay of inactivity"
 	app.Email = "me@simon987.net"
 	app.Author = "simon987"
-	app.Version = "1.1"
+	app.Version = "1.2"
 
 	var cmdString string
 	var watchDir string
@@ -85,7 +85,7 @@ func main() {
 			fileMap:       &sync.Map{},
 			beemChan:      make(chan string, transfers),
 			tarChan:       make(chan string, 100),
-			beemCommand:   parseCommand(cmdString),
+			beemCommand:   parseCommand(watchDir, cmdString),
 			inactiveDelay: inactiveDelay,
 			beemWg:        &sync.WaitGroup{},
 			tarWg:         &sync.WaitGroup{},

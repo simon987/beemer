@@ -82,8 +82,9 @@ func copyFile(src string, dst string) error {
 	return out.Close()
 }
 
-func parseCommand(command string) func(string, string) (string, []string) {
+func parseCommand(watchDir, command string) func(string, string) (string, []string) {
 	args, _ := argv.Argv([]rune(command), argv.ParseEnv(os.Environ()), argv.Run)
+	absWatchDir, _ := filepath.Abs(watchDir)
 
 	logrus.WithField("cmd", args[0]).Info("Parsed beem command")
 
@@ -93,7 +94,11 @@ func parseCommand(command string) func(string, string) (string, []string) {
 
 		for i := range newTokens {
 			newTokens[i] = strings.Replace(newTokens[i], "%file", name, -1)
-			newTokens[i] = strings.Replace(newTokens[i], "%dir", dir, -1)
+			d, _ := filepath.Rel(absWatchDir, dir)
+			if d == "." {
+				d = ""
+			}
+			newTokens[i] = strings.Replace(newTokens[i], "%dir", d, -1)
 			newTokens[i] = strings.Replace(newTokens[i], "%name", filepath.Base(name), -1)
 		}
 		return args[0][0], newTokens[1:]
@@ -118,9 +123,9 @@ func (b *Beemer) dispose() {
 	})
 
 	go func() {
-		time.Sleep(15 * time.Second)
-		close(b.beemChan)
+		time.Sleep(30 * time.Second)
 		logrus.WithField("chanLen", len(b.beemChan)).Info("Forcefully closed beem channel")
+		close(b.beemChan)
 	}()
 
 	logrus.WithField("chanLen", len(b.beemChan)).Info("Waiting for beem queue to drain...")
